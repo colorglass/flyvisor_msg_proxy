@@ -1,8 +1,7 @@
 use libc;
-use serde::Serialize;
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Default, Serialize)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct Sm2Point {
     x: [u8; 32],
     y: [u8; 32],

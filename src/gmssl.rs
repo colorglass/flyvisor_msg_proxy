@@ -129,6 +129,11 @@ pub fn sm3_kdf(ecdh_shared: &Sm2Point) -> Result<Sm4Key, SmError> {
 }
 
 pub fn sm4_cbc_padding_decrypt(key: &Sm4Key, indata: &[u8]) -> Result<Vec<u8>, SmError> {
+
+    if indata.len() == 0 {
+        return Ok(Vec::new());
+    }
+
     let mut sm4_decrypt_key = ffi::Sm4Key::default();
     let raw_key = key[0..16].as_ptr();
     let iv = key[16..32].as_ptr();
@@ -156,6 +161,11 @@ pub fn sm4_cbc_padding_decrypt(key: &Sm4Key, indata: &[u8]) -> Result<Vec<u8>, S
 }
 
 pub fn sm4_cbc_padding_encrypt(key: &Sm4Key, indata: &[u8]) -> Result<Vec<u8>, SmError> {
+
+    if indata.len() == 0 {
+        return Ok(Vec::new());
+    }
+
     let mut sm4_encrypt_key = ffi::Sm4Key::default();
     let raw_key = key[0..16].as_ptr();
     let iv = key[16..32].as_ptr();
