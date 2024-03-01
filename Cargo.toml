@@ -6,8 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-byteorder = "1.5.0"
 clap = { version = "4.4.18", features = ["derive", "cargo"] }
 libc = "0.2.153"
 mavlink = "0.12.2"
-serialport = "4.3.0"
+serial2 = "0.2.19"
