@@ -1,4 +1,4 @@
-use std::{io::{self, Read}, ptr::read};
+use std::io;
 use serial2::SerialPort;
 
 const HEADER_MAGIC: u8 = 0xe7;

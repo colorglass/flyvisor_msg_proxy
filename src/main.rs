@@ -1,11 +1,10 @@
-use std::{sync::{Arc, Mutex}, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use clap::Parser;
 use gmssl::Sm4Key;
 use mavlink::Message;
 use serial2::SerialPort;
 use std::{
-    io,
     net::{Ipv4Addr, SocketAddrV4, UdpSocket},
     thread,
 };
