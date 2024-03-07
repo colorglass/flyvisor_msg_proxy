@@ -1,13 +1,13 @@
-use std::{sync::Arc, time::Duration};
-
+use std::{
+    net::{Ipv4Addr, SocketAddrV4, UdpSocket},
+    sync::Arc,
+    thread,
+    time::Duration,
+};
 use clap::Parser;
 use gmssl::Sm4Key;
 use mavlink::{ardupilotmega, Message};
 use serial2::SerialPort;
-use std::{
-    net::{Ipv4Addr, SocketAddrV4, UdpSocket},
-    thread,
-};
 
 mod chiper_pkg;
 mod gmssl;
@@ -16,11 +16,11 @@ mod gmssl;
 #[derive(Parser)]
 struct CliArgs {
     /// input serial device port, device path in unix or com port in windows
-    #[arg(value_name = "serial_port")]
+    #[arg(value_name = "serial")]
     serial_port: String,
 
-    /// target udp ip address
-    #[arg(short, long, default_value_t=Ipv4Addr::LOCALHOST, value_name="ip")]
+    /// target udp ipv4 address
+    #[arg(short, long, default_value_t=Ipv4Addr::LOCALHOST)]
     addr: Ipv4Addr,
 
     /// baudrate for input serial device
@@ -31,10 +31,23 @@ struct CliArgs {
     #[arg(short, long, default_value_t = 14550)]
     port: u16,
 
+    /// private key pem file path
+    #[arg(value_name = "pem")]
+    pem: String,
+
+    /// password for private key
+    #[arg(value_name = "password")]
+    psk: String,
+
+    /// id for authentication
+    #[arg(value_name = "id")]
+    id: String,
+
     /// enable debug infomations
     #[arg(short, long)]
     debug: bool,
 }
+
 
 // Abstract communication channel used to
 struct SecureChannel {
@@ -158,41 +171,6 @@ impl SecureChannel {
     }
 }
 
-#[allow(unused)]
-fn trans_without_encrypt(serialport: SerialPort) {
-    let serialport_0 = Arc::new(serialport);
-    let serialport_1 = Arc::clone(&serialport_0);
-    let udp_0 = Arc::new(UdpSocket::bind("0.0.0.0:0").unwrap());
-    let udp_1 = Arc::clone(&udp_0);
-
-    let thread1 = thread::spawn(move || {
-        let mut buf = vec![0u8; 1024];
-        loop {
-            let (size, addr) = udp_0.recv_from(&mut buf).unwrap();
-            println!("recived {} bytes from {}", size, addr);
-            serialport_0.write_all(&buf).unwrap();
-        }
-    });
-
-    let thread2 = thread::spawn(move || {
-        let mut buf = vec![0u8; 1024];
-        loop {
-            let size = serialport_1.read(&mut buf).unwrap();
-            println!("recived {} bytes from serial", size);
-            let rst = udp_1
-                .send_to(
-                    &buf[..size],
-                    SocketAddrV4::new("172.16.22.86".parse().unwrap(), 24550),
-                )
-                .unwrap();
-            println!("send to: {:?}", rst);
-        }
-    });
-
-    thread1.join().unwrap();
-    thread2.join().unwrap();
-}
-
 fn main() {
     let args = CliArgs::parse();
 
@@ -203,9 +181,9 @@ fn main() {
 
     let udp = Arc::new(UdpSocket::bind("0.0.0.0:0").unwrap());
     let channel = Arc::new(SecureChannel::new(serialport).connect().auth(
-        "test_psk_public_key",
-        "private_key.pem",
-        "test_psk",
+        &args.id,
+        &args.pem,
+        &args.psk,
     ));
 
     let channel_0 = Arc::clone(&channel);
