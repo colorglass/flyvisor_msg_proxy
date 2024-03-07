@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use clap::Parser;
 use gmssl::Sm4Key;
-use mavlink::Message;
+use mavlink::{ardupilotmega, Message};
 use serial2::SerialPort;
 use std::{
     net::{Ipv4Addr, SocketAddrV4, UdpSocket},
@@ -116,19 +116,23 @@ impl SecureChannel {
         self
     }
 
+    #[allow(dead_code)]
     fn reset(&mut self) {
         self.key = Sm4Key::default();
         self.authed = false;
     }
 
-    fn send(&self, fun: chiper_pkg::PackageFun, data: &Vec<u8>) {
+    fn send(&self, fun: chiper_pkg::PackageFun, data: &[u8]) {
         if self.key == Sm4Key::default() {
             panic!("Connection not established");
         }
 
         if fun == chiper_pkg::PackageFun::Data {}
 
-        let msg = gmssl::sm4_cbc_padding_encrypt(&self.key, data).unwrap();
+        let msg = gmssl::sm4_cbc_padding_encrypt(&self.key, data).unwrap_or_else(|e| {
+            println!("encrypt error: {:?}", e);
+            Vec::default()
+        });
         let pkg = chiper_pkg::make_package(fun, msg);
         chiper_pkg::send_package(&self.port, &pkg).unwrap();
     }
@@ -144,11 +148,49 @@ impl SecureChannel {
         if pkg.fun == chiper_pkg::PackageFun::ResponseErr {
             msg = pkg.message;
         } else {
-            msg = gmssl::sm4_cbc_padding_decrypt(&self.key, &pkg.message).unwrap();
+            msg = gmssl::sm4_cbc_padding_decrypt(&self.key, &pkg.message).unwrap_or_else(|e| {
+                println!("encrypt error: {:?}", e);
+                Vec::default()
+            });
         }
 
         (msg, pkg.fun)
     }
+}
+
+#[allow(unused)]
+fn trans_without_encrypt(serialport: SerialPort) {
+    let serialport_0 = Arc::new(serialport);
+    let serialport_1 = Arc::clone(&serialport_0);
+    let udp_0 = Arc::new(UdpSocket::bind("0.0.0.0:0").unwrap());
+    let udp_1 = Arc::clone(&udp_0);
+
+    let thread1 = thread::spawn(move || {
+        let mut buf = vec![0u8; 1024];
+        loop {
+            let (size, addr) = udp_0.recv_from(&mut buf).unwrap();
+            println!("recived {} bytes from {}", size, addr);
+            serialport_0.write_all(&buf).unwrap();
+        }
+    });
+
+    let thread2 = thread::spawn(move || {
+        let mut buf = vec![0u8; 1024];
+        loop {
+            let size = serialport_1.read(&mut buf).unwrap();
+            println!("recived {} bytes from serial", size);
+            let rst = udp_1
+                .send_to(
+                    &buf[..size],
+                    SocketAddrV4::new("172.16.22.86".parse().unwrap(), 24550),
+                )
+                .unwrap();
+            println!("send to: {:?}", rst);
+        }
+    });
+
+    thread1.join().unwrap();
+    thread2.join().unwrap();
 }
 
 fn main() {
@@ -156,48 +198,48 @@ fn main() {
 
     let mut serialport = SerialPort::open(args.serial_port, args.baudrate).unwrap();
     serialport.set_read_timeout(Duration::MAX).unwrap();
+
+    // trans_without_encrypt(serialport);
+
+    let udp = Arc::new(UdpSocket::bind("0.0.0.0:0").unwrap());
     let channel = Arc::new(SecureChannel::new(serialport).connect().auth(
         "test_psk_public_key",
         "private_key.pem",
         "test_psk",
     ));
 
-    let udp = Arc::new(UdpSocket::bind("0.0.0.0:0").unwrap());
-
     let channel_0 = Arc::clone(&channel);
     let udp_0 = Arc::clone(&udp);
 
     thread::spawn(move || {
-        let mut buf = [0; 1024];
+        let mut buf = vec![0u8; 1024];
         loop {
-            let (size, _addr) = udp.recv_from(&mut buf).unwrap();
-            println!("recived {} bytes from {}", size, _addr);
-            let data = &buf[..size];
-            channel.send(chiper_pkg::PackageFun::Data, &data.to_vec());
+            let (size, addr) = udp.recv_from(&mut buf).unwrap();
+            let (_, msg): (_, ardupilotmega::MavMessage) =
+                mavlink::read_v2_msg(&mut &buf[..]).unwrap();
+            println!("recived msg: {} from {}", msg.message_name(), addr);
+
+            channel.send(chiper_pkg::PackageFun::Data, &buf[..size]);
         }
     });
 
     loop {
         let (data, fun) = channel_0.recv();
-        match fun {
-            chiper_pkg::PackageFun::Data => {
-                let mut cursor = std::io::Cursor::new(data);
-                let (header, msg) = mavlink::read_v2_msg::<
-                    mavlink::ardupilotmega::MavMessage,
-                    std::io::Cursor<Vec<u8>>,
-                >(&mut cursor)
-                .unwrap();
-                println!("recived msg: {}", msg.message_name());
-                let mut data = [0u8; 512];
-                let data_size = msg.ser(mavlink::MavlinkVersion::V2, &mut data);
-                let rst = udp_0
-                    .send_to(&data[..data_size], SocketAddrV4::new(args.addr, args.port))
+        if fun == chiper_pkg::PackageFun::Data {
+            if let Ok((header, msg)) =
+                mavlink::read_v2_msg::<ardupilotmega::MavMessage, &[u8]>(&mut &data[..])
+            {
+                println!("recived msg: {} from remote", msg.message_name());
+                let mut raw_msg = mavlink::MAVLinkV2MessageRaw::new();
+                raw_msg.serialize_message(header, &msg);
+                let _rst = udp_0
+                    .send_to(raw_msg.raw_bytes(), SocketAddrV4::new(args.addr, args.port))
                     .unwrap();
-                println!("send to: {:?}", rst);
+            } else {
+                continue;
             }
-            _ => {
-                println!("fun: {:?}, data: {:?}", fun, data);
-            }
+        } else {
+            println!("fun: {:?}, data: {:?}", fun, data);
         }
     }
 }
