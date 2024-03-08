@@ -36,7 +36,7 @@ pub struct Sm4Key {
     rk: [u32; 32],
 }
 
-#[link(name = "gmssl", kind = "dylib")]
+#[link(name = "gmssl", kind = "static")]
 extern "C" {
     pub fn sm2_key_generate(key: *mut Sm2KeyPair) -> libc::c_int;
     pub fn sm2_decrypt(key: *const Sm2KeyPair, indata: *const u8, inlen: usize, outdata: *mut u8, outlen: *mut usize) -> libc::c_int;
